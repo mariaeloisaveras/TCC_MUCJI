@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.venv/
+*.tif
+*.tiff
+*.qgz
+*.scpx
+.DS_Store
