@@ -1,6 +1,6 @@
 # Cobertura da terra no Mosaico Juréia-Itatins
 
-Códigos de preparação das imagens Landsat e geração das máscaras de exclusão utilizados no desenvolvimento do TCC de Maria Eloisa Véras (UFABC). Os scripts GEE são adaptações do exemplo fornecido pela Profa. Dra. Ângela Terumi Fushita.
+Códigos de preparação das imagens Landsat, separação das bandas e geração das máscaras de exclusão utilizados no desenvolvimento do TCC de Maria Eloisa Véras (UFABC). Os scripts GEE são adaptações do exemplo fornecido pela Profa. Dra. Ângela Terumi Fushita.
 
 ## Organização
 
@@ -8,6 +8,7 @@ Códigos de preparação das imagens Landsat e geração das máscaras de exclus
 - `gee/landsat_2000.js`: mediana anual, Landsat 7.
 - `gee/landsat_2010.js`: mediana de duas cenas, Landsat 5.
 - `gee/landsat_2020.js`: mediana anual das cenas Landsat 8 selecionadas.
+- `python/separar_bandas_qgis.py`: separação das imagens multibanda em GeoTIFFs individuais para uso no SCP.
 - `python/gerar_mascaras_exclusao_qgis.py`: seleção de GeoTIFFs e geração das máscaras no QGIS.
 
 ## Seleção das imagens
@@ -37,6 +38,31 @@ Cada script funciona de forma independente. A execução cria tarefas; não baix
 As seis bandas de saída seguem a ordem: **blue, green, red, nir, swir1, swir2**. Os valores de reflectância são calculados com fator `0.0000275` e deslocamento `-0.2`. São aplicadas máscaras de QA_PIXEL, QA_RADSAT e disponibilidade simultânea nas seis bandas. Os bits utilizados são explicitados nos códigos.
 
 A grade comum utiliza `EPSG:31983` (SIRGAS 2000 / UTM 23S), transformação `[30, 0, 0, 0, -30, 10000000]` e pixels de 30 m. A reflectância tem NoData `-9999`. Na contagem de observações, **0 é ausência de observações válidas dentro do recorte** e `65535` é NoData. Disponibilidade de observações não significa acurácia temática nem ausência garantida de nuvens.
+
+## Separar as bandas no QGIS
+
+1. Abra **Complementos > Console Python**, depois o editor do console.
+2. Abra `python/separar_bandas_qgis.py` e execute.
+3. Na primeira janela, selecione uma ou mais imagens de reflectância multibanda exportadas pelo GEE.
+4. Na segunda janela, escolha a pasta de saída. Será criada uma subpasta `<nome_da_imagem>_bandas` para cada imagem.
+5. Carregue os arquivos individuais no QGIS e adicione-os ao conjunto de bandas do SCP na ordem abaixo.
+
+Requer QGIS com GDAL disponível no seu ambiente Python. O script aceita diferentes quantidades de bandas; as imagens de reflectância deste projeto contêm seis bandas.
+
+| Sufixo do arquivo | Banda espectral neste projeto |
+|---|---|
+| `_banda_01.tif` | Azul (`blue`) |
+| `_banda_02.tif` | Verde (`green`) |
+| `_banda_03.tif` | Vermelho (`red`) |
+| `_banda_04.tif` | Infravermelho próximo (`nir`) |
+| `_banda_05.tif` | Infravermelho de ondas curtas 1 (`swir1`) |
+| `_banda_06.tif` | Infravermelho de ondas curtas 2 (`swir2`) |
+
+A numeração representa a posição no GeoTIFF exportado, não o número original da banda no sensor Landsat. A separação preserva os valores, o tipo de dado, o NoData declarado, as dimensões, a projeção e a transformação da grade. Não reaplica fatores de escala nem reamostra os pixels. Os arquivos usam compressão LZW, sem perdas.
+
+As imagens originais não são alteradas. Se algum arquivo de saída já existir, a separação daquela imagem é interrompida antes das exportações. A conferência automática verifica a estrutura, a grade, o tipo de dado e o NoData das saídas.
+
+Para gerar as máscaras de exclusão na etapa seguinte, utilize a imagem original com seis bandas, não os arquivos separados.
 
 ## Gerar as máscaras no QGIS
 
