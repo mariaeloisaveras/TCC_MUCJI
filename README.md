@@ -10,6 +10,7 @@ Códigos de preparação das imagens Landsat, separação das bandas e geração
 - `gee/landsat_2020.js`: mediana anual das cenas Landsat 8 selecionadas.
 - `python/separar_bandas_qgis.py`: separação das imagens multibanda em GeoTIFFs individuais para uso no SCP.
 - `python/gerar_mascaras_exclusao_qgis.py`: seleção de GeoTIFFs e geração das máscaras no QGIS.
+- `python/quantificar_cobertura_mudancas.py`: cálculo de áreas por classe e transições entre anos, por área vetorial e no total.
 
 ## Seleção das imagens
 
@@ -80,6 +81,27 @@ A máscara recebe **0 para manter** e **1 para excluir**. Nenhum desses valores 
 Para aplicar ao resultado no SCP, use o mapa classificado como conjunto de bandas de entrada e a máscara do ano como camada de exclusão em **Masking bands**. Indique **1** em **Mask class values**, não aplique buffer adicional e defina **0** como NoData da classificação de saída. Os códigos temáticos são 1 = água, 2 = vegetação, 3 = área não vegetada.
 
 A máscara remove ausência de dados; não corrige confusões entre água e sombra. Em análises entre datas, considere a área válida comum e não trate NoData como mudança de cobertura.
+
+## Quantificar cobertura e mudanças
+
+O script de quantificação é independente do QGIS e pode ser usado em outras áreas de estudo. Requer Python 3.10+, NumPy, GDAL/OGR, Tkinter e ambiente gráfico.
+
+1. Ajuste `ANOS` e `CLASSES` no início de `python/quantificar_cobertura_mudancas.py`. Os valores atuais são exemplos do estudo; os códigos de classe devem ser inteiros positivos. Zero é reservado para exclusão.
+2. No terminal, a partir da pasta do repositório, execute:
+
+   ```bash
+   /usr/bin/python3 python/quantificar_cobertura_mudancas.py
+   ```
+
+   Em outros ambientes, use o executável Python que tenha as dependências instaladas.
+
+3. Selecione um GeoTIFF classificado por ano, o vetor de polígonos (`.gpkg` ou `.shp`), a camada, o campo de identificação e a pasta de saída.
+
+Os rasters devem ter uma banda, a mesma extensão, resolução e grade sem rotação, com CRS projetado em metros. O vetor é reprojetado em memória para a grade dos rasters. Feições com a mesma identificação são agrupadas; áreas diferentes não podem se sobrepor nos centros dos pixels.
+
+Cada execução cria uma pasta `analise_<data>_<hora>_<identificador>`, preservando resultados anteriores. As subpastas por ano contêm `resultado_ANO.csv` e os parâmetros em JSON. O último ano também recebe a comparação geral. Os CSVs usam ponto e vírgula, vírgula decimal e codificação UTF-8 com BOM.
+
+As tabelas calculam áreas em hectares, percentuais, permanência, ganhos, perdas e destinos por classe. As comparações abrangem anos consecutivos e o primeiro com o último ano. Todos os resultados usam somente os pixels válidos em todos os anos; os percentuais se referem a essa área comum. As áreas são planas, atribuídas pelo centro do pixel, sem ajuste estatístico de acurácia. Os arquivos JSON registram os caminhos locais das entradas para rastreabilidade.
 
 ## Dados necessários
 
