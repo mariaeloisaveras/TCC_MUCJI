@@ -21,8 +21,6 @@ import shutil
 import tempfile
 from datetime import datetime
 from pathlib import Path
-import tkinter as tk
-from tkinter import filedialog, messagebox, simpledialog
 
 import numpy as np
 from osgeo import gdal, ogr, osr
@@ -48,6 +46,8 @@ def carregar_mapas(caminhos):
             crs = osr.SpatialReference()
             crs.ImportFromWkt(imagem.GetProjection())
             grade = imagem.GetGeoTransform()
+            if not np.all(np.isfinite(grade)):
+                raise ValueError(f'{ano}: a transformação da grade contém valores não finitos.')
             if not crs.IsProjected() or abs(crs.GetLinearUnits() - 1) > 1e-8:
                 raise ValueError(f'{ano}: o raster deve usar um CRS projetado em metros.')
             if grade[1] <= 0 or grade[5] >= 0 or not np.allclose(
@@ -71,7 +71,10 @@ def carregar_mapas(caminhos):
                     and bool(crs.IsSame(crs_ref))
                 )
                 if not mesma_grade:
-                    raise ValueError(f'{ano}: a grade difere da referência. Alinhe os rasters antes de executar.')
+                    raise ValueError(
+                        f'{ano}: a grade difere da referência. '
+                        'Alinhe os rasters antes de executar.'
+                    )
             banda = imagem.GetRasterBand(1)
             valores = banda.ReadAsArray()
             validos = np.isfinite(valores) & (banda.GetMaskBand().ReadAsArray() != 0)
@@ -128,8 +131,12 @@ def rasterizar_areas(caminho, camada, campo, referencia):
         for feicao in layer:
             nome = feicao.GetField(campo)
             geometria = feicao.GetGeometryRef()
-            if nome is None or not str(nome).strip() or geometria is None:
+            if (nome is None or not str(nome).strip()
+                    or geometria is None or geometria.IsEmpty()):
                 raise ValueError('Há uma feição sem identificação ou sem geometria.')
+            if ogr.GT_Flatten(geometria.GetGeometryType()) not in (
+                    ogr.wkbPolygon, ogr.wkbMultiPolygon):
+                raise ValueError(f'{nome}: a geometria deve ser polígono ou multipolígono.')
             if not geometria.IsValid():
                 raise ValueError(f'Geometria inválida em {nome}. Use Corrigir geometrias no QGIS.')
             copia = geometria.Clone()
@@ -151,10 +158,15 @@ def rasterizar_areas(caminho, camada, campo, referencia):
             raster.SetGeoTransform(referencia['transformacao'])
             raster.SetProjection(referencia['projecao'])
             raster.GetRasterBand(1).Fill(0)
-            gdal.RasterizeLayer(raster, [1], poligonos, burn_values=[1], options=['ALL_TOUCHED=FALSE'])
+            gdal.RasterizeLayer(
+                raster, [1], poligonos, burn_values=[1], options=['ALL_TOUCHED=FALSE']
+            )
             dentro = raster.ReadAsArray() == 1
             if np.any(dentro & (zonas > 0)):
-                raise ValueError(f'As áreas se sobrepõem em centros de pixels, incluindo {nome}. Confira o vetor.')
+                raise ValueError(
+                    f'As áreas se sobrepõem em centros de pixels, incluindo {nome}. '
+                    'Confira o vetor.'
+                )
             zonas[dentro] = codigo
             nomes[codigo] = nome
             raster = None
@@ -214,7 +226,10 @@ def analisar(caminhos, vetor, camada, campo, pasta_saida):
     linhas_gerais = []
     for indice_recorte, (nome, mascara, dentro_area) in enumerate(recortes):
         total = int(np.count_nonzero(mascara))
-        contagens_ano = {ano: np.array([np.count_nonzero(mapas[ano][mascara] == c) for c in classes]) for ano in anos}
+        contagens_ano = {
+            ano: np.array([np.count_nonzero(mapas[ano][mascara] == c) for c in classes])
+            for ano in anos
+        }
         matrizes = {}
         for inicio, fim in intervalos:
             # Índices compactos permitem códigos de classe não consecutivos.
@@ -233,20 +248,30 @@ def analisar(caminhos, vetor, camada, campo, pasta_saida):
             for indice, (classe, descricao) in enumerate(CLASSES.items()):
                 quantidade = int(contagens_ano[ano][indice])
                 linha = {
-                    'ano': ano, 'recorte': nome, 'tipo_recorte': 'total' if indice_recorte == 0 else 'area', 'classe_codigo': classe, 'classe_nome': descricao,
+                    'ano': ano, 'recorte': nome,
+                    'tipo_recorte': 'total' if indice_recorte == 0 else 'area',
+                    'classe_codigo': classe, 'classe_nome': descricao,
                     'pixels': quantidade, 'area_ha': quantidade * pixel_ha,
                     'percentual_area_comum': percentual(quantidade, total),
                     'area_comum_recorte_ha': total * pixel_ha,
                     'area_recorte_grade_ha': int(np.count_nonzero(dentro_area)) * pixel_ha,
-                    'area_valida_ano_ha': int(np.count_nonzero(validade[ano] & dentro_area)) * pixel_ha,
+                    'area_valida_ano_ha': (
+                        int(np.count_nonzero(validade[ano] & dentro_area)) * pixel_ha
+                    ),
                     'ano_inicial_comparacao': anterior if anterior else '',
                 }
                 # A linha identifica a mesma classe no ano inicial e no ano final.
                 # As colunas destino descrevem a linha dessa classe na matriz.
-                for sufixo, inicio in [('', anterior), (f'_desde_{anos[0]}', anos[0] if ano == anos[-1] else None)]:
-                    valores = dict.fromkeys(['area_classe_inicial_ha', 'permanencia_ha', 'ganho_ha',
-                                            'perda_ha', 'saldo_ha']
-                                            + [f'destino_classe_{c}_ha' for c in classes], '')
+                comparacoes = [
+                    ('', anterior),
+                    (f'_desde_{anos[0]}', anos[0] if ano == anos[-1] else None),
+                ]
+                for sufixo, inicio in comparacoes:
+                    valores = dict.fromkeys(
+                        ['area_classe_inicial_ha', 'permanencia_ha', 'ganho_ha',
+                         'perda_ha', 'saldo_ha']
+                        + [f'destino_classe_{c}_ha' for c in classes], ''
+                    )
                     if inicio is not None:
                         matriz = matrizes[inicio, ano]
                         permanencia = int(matriz[indice, indice])
@@ -279,7 +304,10 @@ def analisar(caminhos, vetor, camada, campo, pasta_saida):
         'criterio_limite_area': 'centro do pixel',
         'area_calculada': 'área plana na grade projetada; sem ajuste de acurácia',
         'intervalos': intervalos,
-        'colunas_destino': 'Área da classe indicada na linha, no ano inicial, segundo seu destino no ano final.',
+        'colunas_destino': (
+            'Área da classe indicada na linha, no ano inicial, '
+            'segundo seu destino no ano final.'
+        ),
         'comparacao_acumulada': {'inicio': anos[0], 'fim': anos[-1]},
     }
     pasta_saida = Path(pasta_saida)
@@ -291,8 +319,13 @@ def analisar(caminhos, vetor, camada, campo, pasta_saida):
     try:
         for ano in anos:
             saidas[ano].parent.mkdir(parents=True, exist_ok=True)
-            temporarias[ano] = Path(tempfile.mkdtemp(prefix='.analise_nova_', dir=saidas[ano].parent))
-            gravar_csv(temporarias[ano] / f'resultado_{ano}.csv', list(tabelas[ano][0]), tabelas[ano])
+            temporarias[ano] = Path(tempfile.mkdtemp(
+                prefix='.analise_nova_', dir=saidas[ano].parent
+            ))
+            gravar_csv(
+                temporarias[ano] / f'resultado_{ano}.csv',
+                list(tabelas[ano][0]), tabelas[ano]
+            )
             (temporarias[ano] / f'parametros_analise_{ano}.json').write_text(
                 json.dumps(registro, ensure_ascii=False, indent=2), encoding='utf-8')
         gravar_csv(temporarias[anos[-1]] / f'comparacao_geral_{anos[0]}_{anos[-1]}.csv',
@@ -313,18 +346,25 @@ def analisar(caminhos, vetor, camada, campo, pasta_saida):
 
 
 def executar():
+    import tkinter as tk
+    from tkinter import filedialog, messagebox, simpledialog
+
     janela = tk.Tk()
     janela.withdraw()
     try:
         caminhos = {}
         for ano in ANOS:
-            arquivo = filedialog.askopenfilename(title=f'Selecione a classificação mascarada de {ano}',
-                                                filetypes=[('GeoTIFF', '*.tif *.tiff')])
+            arquivo = filedialog.askopenfilename(
+                title=f'Selecione a classificação mascarada de {ano}',
+                filetypes=[('GeoTIFF', '*.tif *.tiff')]
+            )
             if not arquivo:
                 return
             caminhos[ano] = Path(arquivo)
-        vetor = filedialog.askopenfilename(title='Selecione o vetor de áreas de análise',
-                                          filetypes=[('Vetor', '*.gpkg *.shp')])
+        vetor = filedialog.askopenfilename(
+            title='Selecione o vetor de áreas de análise',
+            filetypes=[('Vetor', '*.gpkg *.shp')]
+        )
         if not vetor:
             return
         camadas = listar_camadas(vetor)
@@ -332,7 +372,9 @@ def executar():
             raise ValueError('O vetor não contém camadas.')
         camada = camadas[0]
         if len(camadas) > 1:
-            camada = simpledialog.askstring('Camada das áreas', 'Digite o nome da camada:\n' + '\n'.join(camadas))
+            camada = simpledialog.askstring(
+                'Camada das áreas', 'Digite o nome da camada:\n' + '\n'.join(camadas)
+            )
             if camada is None:
                 return
             if camada not in camadas:
@@ -340,9 +382,11 @@ def executar():
         campos = listar_campos(vetor, camada)
         if not campos:
             raise ValueError('A camada não contém campos de identificação.')
-        campo = simpledialog.askstring('Identificação das áreas',
-                                       'Campo com o nome ou código de cada área:\n' + ', '.join(campos),
-                                       initialvalue=campos[0])
+        campo = simpledialog.askstring(
+            'Identificação das áreas',
+            'Campo com o nome ou código de cada área:\n' + ', '.join(campos),
+            initialvalue=campos[0]
+        )
         if campo is None:
             return
         pasta_saida = filedialog.askdirectory(title='Selecione a pasta de saída')
@@ -350,7 +394,9 @@ def executar():
             return
         print('Iniciando análise das classificações...')
         analisar(caminhos, vetor, camada, campo, pasta_saida)
-        messagebox.showinfo('Concluído', f'Tabelas salvas em uma nova pasta dentro de:\n{pasta_saida}')
+        messagebox.showinfo(
+            'Concluído', f'Tabelas salvas em uma nova pasta dentro de:\n{pasta_saida}'
+        )
     except Exception as erro:
         print(f'ERRO: {erro}')
         messagebox.showerror('Falha na análise', str(erro))

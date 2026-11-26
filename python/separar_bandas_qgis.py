@@ -1,23 +1,14 @@
-"""
-Separação de imagens multibanda em arquivos GeoTIFF individuais.
+"""Separa imagens multibanda em arquivos GeoTIFF individuais.
 
-Entrada:
-    Uma ou mais imagens GeoTIFF multibanda.
-
-Saída:
-    Uma subpasta por imagem, contendo um arquivo para cada banda.
-
-Execução:
-    Editor do Console Python do QGIS.
-
+Execute no editor do Console Python do QGIS.
+Selecione as imagens e a pasta de saída nas janelas abertas.
+Cada imagem recebe uma subpasta com um arquivo por banda.
 As imagens originais não são alteradas.
 """
 
 from pathlib import Path
 
 from osgeo import gdal
-from qgis.PyQt.QtWidgets import QFileDialog
-from qgis.utils import iface
 
 gdal.UseExceptions()
 
@@ -30,13 +21,11 @@ def separar_bandas(caminho_entrada, pasta_saida):
     imagem = gdal.Open(str(entrada), gdal.GA_ReadOnly)
 
     try:
-        # Define os nomes antes de iniciar a exportação.
         arquivos = [
             pasta_imagem / f"{entrada.stem}_banda_{numero:02d}.tif"
             for numero in range(1, imagem.RasterCount + 1)
         ]
 
-        # Evita sobrescrever bandas exportadas anteriormente.
         existentes = [arquivo for arquivo in arquivos if arquivo.exists()]
 
         if existentes:
@@ -48,7 +37,6 @@ def separar_bandas(caminho_entrada, pasta_saida):
         pasta_imagem.mkdir(parents=True, exist_ok=True)
 
         for numero, arquivo in enumerate(arquivos, start=1):
-            # Seleciona somente uma banda da imagem original.
             resultado = gdal.Translate(
                 str(arquivo),
                 imagem,
@@ -59,7 +47,7 @@ def separar_bandas(caminho_entrada, pasta_saida):
                 )
             )
 
-            # Fecha o arquivo para concluir a gravação.
+            # Fecha a saída antes de reabri-la para conferência.
             resultado = None
 
             verificar_banda(arquivo, imagem, numero)
@@ -109,6 +97,9 @@ def verificar_banda(caminho, imagem_original, numero):
 
 def executar():
     """Solicita as imagens e a pasta de saída."""
+    from qgis.PyQt.QtWidgets import QFileDialog
+    from qgis.utils import iface
+
     imagens, _ = QFileDialog.getOpenFileNames(
         iface.mainWindow(),
         "Selecione as imagens multibanda",
@@ -136,4 +127,5 @@ def executar():
             print(f"Erro em {Path(caminho).name}: {erro}")
 
 
-executar()
+if __name__ in ('__main__', '__console__'):
+    executar()

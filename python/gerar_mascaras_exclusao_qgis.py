@@ -4,12 +4,11 @@ Execute no editor do console Python do QGIS.
 Selecione as imagens e, em seguida, a pasta de saída nas janelas abertas.
 Máscara: 0 = manter; 1 = excluir. A imagem original não é alterada.
 """
+
 from pathlib import Path
 
 import numpy as np
 from osgeo import gdal
-from qgis.PyQt.QtWidgets import QFileDialog
-from qgis.utils import iface
 
 gdal.UseExceptions()
 NUMERO_BANDAS = 6
@@ -76,6 +75,9 @@ def criar_mascara(caminho_entrada, pasta_saida):
 
 def executar():
     """Solicita as imagens e uma pasta comum de saída; processa cada arquivo."""
+    from qgis.PyQt.QtWidgets import QFileDialog
+    from qgis.utils import iface
+
     imagens, _ = QFileDialog.getOpenFileNames(
         iface.mainWindow(), 'Selecione as imagens Landsat com seis bandas',
         '', 'GeoTIFF (*.tif *.tiff)'
@@ -95,4 +97,5 @@ def executar():
             print(f'Erro em {Path(caminho).name}: {erro}')
 
 
-executar()
+if __name__ in ('__main__', '__console__'):
+    executar()
